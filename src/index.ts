@@ -1,5 +1,6 @@
 import axios from "axios";
 import { Plugin } from "vite";
+import { IndexHtmlTransformContext } from 'vite';
 import transform from "./transform";
 import { createRootIfNotExists, stringifyFromPattern } from "./utils";
 
@@ -12,14 +13,15 @@ export interface RootNode {
 
 export interface ProxyPageOptions {
   localEntryPoint: string;
-  remoteUrl: string;
+  remoteUrl?: string;
+  remoteUrlFunction?: (ctx?: IndexHtmlTransformContext) => string;
   remoteEntryPoint?: RegExp | string;
   rootNode?: RootNode;
   cacheHtml?: boolean;
 }
 
 export interface ProxyPlugin extends Plugin {
-  transformIndexHtml: (html: string) => Promise<any>;
+  transformIndexHtml: (_html: string, ctx?: IndexHtmlTransformContext) => Promise<any>;
   transform: (src: string, id: string) => any;
 }
 
@@ -29,6 +31,7 @@ export const proxyPage = ({
   localEntryPoint,
   remoteEntryPoint,
   remoteUrl,
+  remoteUrlFunction,
   rootNode,
   cacheHtml = true,
 }: ProxyPageOptions): ProxyPlugin => {
@@ -51,13 +54,15 @@ export const proxyPage = ({
       return isLocalEntryPoint ? `import.meta.hot; ${src}` : src;
     },
 
-    async transformIndexHtml(_html = ""): Promise<string> {
-      if (cacheHtml && htmlCache.get(remoteUrl)) {
-        return htmlCache.get(remoteUrl);
+    async transformIndexHtml(_html: string, ctx?: IndexHtmlTransformContext): Promise<string> {
+      const url = remoteUrlFunction ? remoteUrlFunction(ctx) : remoteUrl || '/';
+      
+      if (cacheHtml && htmlCache.get(url)) {
+        return htmlCache.get(url);
       }
 
-      const { origin } = new URL(remoteUrl);
-      const { data: html } = await axios.get(remoteUrl, {
+      const { origin } = new URL(url);
+      const { data: html } = await axios.get(url, {
         responseType: "text",
       });
 
@@ -69,7 +74,7 @@ export const proxyPage = ({
         rootNode,
       });
 
-      cacheHtml && htmlCache.set(remoteUrl, transformedHtml);
+      cacheHtml && htmlCache.set(url, transformedHtml);
 
       return transformedHtml;
     },
